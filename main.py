@@ -1,7 +1,7 @@
 import socket
 import hashlib
+import threading
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.backends import default_backend
 import os
 
@@ -20,9 +20,7 @@ def encrypt_message(message, key):
     iv = os.urandom(16)
     cipher = Cipher(algorithms.AES(key), modes.CFB(iv), backend=backend)
     encryptor = cipher.encryptor()
-    padder = padding.PKCS7(128).padder()
-    padded_data = padder.update(message.encode()) + padder.finalize()
-    encrypted_message = encryptor.update(padded_data) + encryptor.finalize()
+    encrypted_message = encryptor.update(message.encode()) + encryptor.finalize()
     return iv + encrypted_message
 
 def decrypt_message(encrypted_message, key):
@@ -30,13 +28,35 @@ def decrypt_message(encrypted_message, key):
     iv = encrypted_message[:16]
     cipher = Cipher(algorithms.AES(key), modes.CFB(iv), backend=backend)
     decryptor = cipher.decryptor()
-    unpadder = padding.PKCS7(128).unpadder()
-    decrypted_padded_message = decryptor.update(encrypted_message[16:]) + decryptor.finalize()
-    decrypted_message = unpadder.update(decrypted_padded_message) + unpadder.finalize()
+    decrypted_message = decryptor.update(encrypted_message[16:]) + decryptor.finalize()
     return decrypted_message.decode()
 
 def derive_key(shared_secret):
     return hashlib.sha256(str(shared_secret).encode()).digest()
+
+def handle_receive(socket, key):
+    while True:
+        try:
+            incoming_message = socket.recv(1024)
+            if incoming_message:
+                decrypted_message = decrypt_message(incoming_message, key)
+                print('Received:', decrypted_message)
+            else:
+                break
+        except Exception as e:
+            print(f"Error in receiving message: {e}")
+            break
+
+def handle_send(socket, key):
+    while True:
+        try:
+            message = input('>> ')
+            encrypted_message = encrypt_message(message, key)
+            socket.send(encrypted_message)
+            print('Sent')
+        except Exception as e:
+            print(f"Error in sending message: {e}")
+            break
 
 def start_client():
     host = input('Enter hostname or host IP: ')
@@ -53,20 +73,20 @@ def start_client():
     shared_secret = generate_shared_secret(client_private_key, server_public_key, p)
     key = derive_key(shared_secret)
     print("Shared secret established.")
-    while True:
-        incoming_message = s.recv(1024)
-        decrypted_message = decrypt_message(incoming_message, key)
-        print('Server:', decrypted_message)
-        print()
-        message = input('>> ')
-        encrypted_message = encrypt_message(message, key)
-        s.send(encrypted_message)
-        print('Sent')
-        print()
+    
+    receive_thread = threading.Thread(target=handle_receive, args=(s, key))
+    send_thread = threading.Thread(target=handle_send, args=(s, key))
+    
+    receive_thread.start()
+    send_thread.start()
+
+    receive_thread.join()
+    send_thread.join()
+    s.close()
 
 def start_server():
     host = socket.gethostname()
-    port = 8081
+    port = 8080
     p = int(input("Enter a prime number (p): "))
     g = int(input("Enter a base number (g): "))
     private_key = int(input("Enter your private key: "))
@@ -74,28 +94,26 @@ def start_server():
     s = socket.socket()
     s.bind((host, port))
     print('Server will start on host:', host)
-    print()
     print('Waiting for connection...')
-    print()
     s.listen(1)
     conn, addr = s.accept()
     print(addr, 'has connected to the server')
-    print()
     client_public_key = int(conn.recv(1024).decode())
     conn.send(f"{server_public_key}".encode())
     shared_secret = generate_shared_secret(server_private_key, client_public_key, p)
     key = derive_key(shared_secret)
     print("Shared secret established.")
-    while True:
-        message = input('>> ')
-        encrypted_message = encrypt_message(message, key)
-        conn.send(encrypted_message)
-        print('Sent')
-        print()
-        incoming_message = conn.recv(1024)
-        decrypted_message = decrypt_message(incoming_message, key)
-        print('Client:', decrypted_message)
-        print()
+    
+    receive_thread = threading.Thread(target=handle_receive, args=(conn, key))
+    send_thread = threading.Thread(target=handle_send, args=(conn, key))
+    
+    receive_thread.start()
+    send_thread.start()
+
+    receive_thread.join()
+    send_thread.join()
+    conn.close()
+    s.close()
 
 if __name__ == "__main__":
     role = input("Do you want to be the client or server? (Enter 'client' or 'server'): ").strip().lower()
