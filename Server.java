@@ -90,9 +90,9 @@ public class Server implements Runnable {
                         broadcast(name + "Has left the chat.");
                         shutdown();
                     } else if (message.startsWith("/RickRoll")) {
-                        broadcast(name + "tinyurl.com/5x2bcwyj");
+                        broadcast(name + " tinyurl.com/5x2bcwyj");
                     } else {
-                        broadcast(name + ":" + message);
+                        broadcast(name + ": " + message);
                     }
                 }
 
@@ -113,7 +113,7 @@ public class Server implements Runnable {
                     client.close();
                 }
             } catch (IOException e) {
-                System.out.println("BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB");
+                System.out.println("wubba lubba dub dub");
             }
         }
 
